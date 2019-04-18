@@ -192,6 +192,17 @@ pub struct SwapChainOutput<'a> {
     swap_chain_id: &'a wgn::SwapChainId,
 }
 
+pub struct ManualFence {
+    queue_id: wgn::QueueId,
+    submit_index: usize,
+}
+
+impl ManualFence {
+    pub fn wait(&self) {
+        wgn::queue_wait_for_fence(self.queue_id, self.submit_index);
+    }
+}
+
 pub struct BufferCopyView<'a> {
     pub buffer: &'a Buffer,
     pub offset: u32,
@@ -856,17 +867,19 @@ impl<'a> Drop for ComputePass<'a> {
 }
 
 impl<'a> Queue<'a> {
-    pub fn submit(&mut self, command_buffers: &[CommandBuffer]) {
+    pub fn submit(&mut self, command_buffers: &[CommandBuffer]) -> ManualFence {
         self.temp.command_buffers.clear();
         self.temp
             .command_buffers
             .extend(command_buffers.iter().map(|cb| cb.id));
 
-        wgn::wgpu_queue_submit(
+        let submit_index = wgn::wgpu_queue_submit(
             self.id,
             self.temp.command_buffers.as_ptr(),
             command_buffers.len(),
         );
+
+        ManualFence { queue_id: self.id, submit_index }
     }
 }
 

@@ -129,6 +129,7 @@ impl<B: hal::Backend> DestroyedResources<B> {
             value: buffer,
             ref_count,
         });
+        self.ready_to_map.push(buffer); // See https://github.com/gfx-rs/wgpu/pull/123
     }
 
     /// Returns the last submission index that is done.
@@ -1087,7 +1088,7 @@ pub extern "C" fn wgpu_queue_submit(
     queue_id: QueueId,
     command_buffer_ptr: *const CommandBufferId,
     command_buffer_count: usize,
-) {
+) -> usize {
     let command_buffer_ids =
         unsafe { slice::from_raw_parts(command_buffer_ptr, command_buffer_count) };
 
@@ -1236,6 +1237,23 @@ pub extern "C" fn wgpu_queue_submit(
     for &cmb_id in command_buffer_ids {
         let cmd_buf = HUB.command_buffers.unregister(cmb_id);
         device.com_allocator.after_submit(cmd_buf, submit_index);
+    }
+
+    submit_index
+}
+
+pub fn queue_wait_for_fence(
+    queue_id: QueueId,
+    submit_index: usize,
+) {
+    let device_guard = HUB.devices.read();
+    let device = &device_guard[queue_id];
+
+    let mut destroyed = device.destroyed.lock();
+    if let Some(active_submission) = destroyed.active.iter_mut().find(|a| a.index == submit_index) {
+        unsafe {
+            device.raw.wait_for_fence(&active_submission.fence, !0).unwrap();
+        }
     }
 }
 
